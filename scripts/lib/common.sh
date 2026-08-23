@@ -425,13 +425,22 @@ remote_verify_digest() {
 # platform-ops — ver ADR-003). Digests vazios (modo legado sem RepoDigests
 # disponível) são gravados como string vazia — o consumidor deve tratar isso
 # como "identidade não verificável", não como erro.
+#
+# Sprint 2A.3 — escrita atômica: grava num arquivo temporário no MESMO
+# diretório (garante que `mv` seja rename, não cópia entre filesystems —
+# atômico no POSIX) e só então move para o path final. Um leitor concorrente
+# (ex.: rollback.sh manual rodando ao mesmo tempo de um deploy) nunca vê um
+# arquivo parcialmente escrito — ou vê o conteúdo antigo completo, ou o novo
+# completo. `chmod 644`: legível por qualquer um (não é segredo — só
+# tag/digest, nunca credencial), gravável apenas pelo dono (`deploy`).
 remote_write_rollback_state() {
   local state_file="$1" backend_tag="$2" backend_digest="$3"
   local frontend_tag="$4" frontend_digest="$5" caddy_tag="$6" caddy_digest="$7"
-  local dir
+  local dir tmp_file
   dir="$(dirname "$state_file")"
+  tmp_file="${state_file}.tmp.$$"
   local remote_cmd
-  remote_cmd="mkdir -p '${dir}' && printf 'BACKEND_TAG=%s\nBACKEND_DIGEST=%s\nFRONTEND_TAG=%s\nFRONTEND_DIGEST=%s\nCADDY_TAG=%s\nCADDY_DIGEST=%s\n' '${backend_tag}' '${backend_digest}' '${frontend_tag}' '${frontend_digest}' '${caddy_tag}' '${caddy_digest}' > '${state_file}'"
+  remote_cmd="mkdir -p '${dir}' && printf 'BACKEND_TAG=%s\nBACKEND_DIGEST=%s\nFRONTEND_TAG=%s\nFRONTEND_DIGEST=%s\nCADDY_TAG=%s\nCADDY_DIGEST=%s\n' '${backend_tag}' '${backend_digest}' '${frontend_tag}' '${frontend_digest}' '${caddy_tag}' '${caddy_digest}' > '${tmp_file}' && chmod 644 '${tmp_file}' && mv -f '${tmp_file}' '${state_file}'"
   ssh_exec "$remote_cmd"
 }
 

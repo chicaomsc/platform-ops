@@ -75,22 +75,29 @@ release). Ver cabeçalho do arquivo para o fluxo completo e a tabela de exit cod
 
 ### `scripts/healthcheck.sh --app <nome> --env <ambiente>`
 
-Sem mudanças de comportamento na Sprint 1.1, além de logar a release SemVer quando disponível.
-Para cada check declarado em `metadata.yml` (`.healthcheck.checks`), roda um loop de retry
-**inteiramente na VPS** (um único SSH por invocação, não um SSH por tentativa), respeitando
-`timeout_seconds`, `interval_seconds` e `retries`. Nunca considera apenas "o container está
-rodando" — HTTP exige o `expected_status` exato; `postgres` exige `pg_isready` bem-sucedido
-dentro do container.
+**Sprint 2A.3 — corrigido um bug real observado no primeiro `workflow_dispatch` contra produção:**
+o tipo de check recomendado agora é `container_health` — lê o `State.Health.Status` que o
+próprio Docker já calcula a partir do `HEALTHCHECK` nativo definido em
+`docker-compose.prod.yml`, em vez de o script fazer sua própria requisição HTTP contra
+`127.0.0.1:<porta>` a partir do host da VPS. Causa raiz do bug antigo: `backend`/`frontend` só
+existem na rede `internal` do compose, nunca publicados no host — um `curl` daqui nunca
+conectava (`status=000000`, produção real). Tipos `http`/`exec` continuam suportados (para
+futuros SaaS sem `HEALTHCHECK` nativo no compose), mas Vantry/Production usa `container_health`
+para os quatro serviços. Cada check roda num loop de retry **inteiramente na VPS** (um único SSH
+por invocação), respeitando `timeout_seconds`/`interval_seconds`/`retries` — cada check com seu
+próprio orçamento de tempo (Sprint 2A.1), nunca compartilhado com os demais.
 
 ### `scripts/rollback.sh --app <nome> --env <ambiente> [--auto] [--to-release <semver>] [--to-backend-tag X --to-backend-digest sha256:... --to-frontend-tag Y --to-frontend-digest sha256:... --to-caddy-tag Z --to-caddy-digest sha256:...]`
 
 Mesma mecânica de convergência do `deploy.sh`, aplicada à versão anterior. Sem as flags `--to-*`,
-lê o snapshot (tag+digest) mais recente em `deploy_target.rollback_state_file` na VPS. Com
-override manual, exige as **seis flags em conjunto** (tag e digest de cada componente) — rollback
-nunca é só por tag, sempre tag+digest verificados (ver
-[docs/versioning.md](versioning.md#rollback)). `--to-release` é apenas um rótulo para clareza de
-log, não faz lookup automático. Sempre confirma saúde da versão revertida antes de reportar
-sucesso.
+lê o snapshot (tag+digest) mais recente em `deploy_target.rollback_state_file` na VPS — este é o
+caminho usado pelo rollback automático de `deploy.sh`. Tag é sempre obrigatória nos três
+componentes. **Digest** (Sprint 2A.3 — corrigido outro bug real do primeiro `workflow_dispatch`):
+obrigatório em conjunto com a tag apenas em modo `release.yml`; em modo legado (`versions.env`,
+allowlist de migração), digest ausente gera aviso, não erro — nunca existiu digest verificável
+nesse contrato (ver [docs/versioning.md](versioning.md#rollback)). `--to-release` é apenas um
+rótulo para clareza de log, não faz lookup automático. Sempre confirma saúde da versão revertida
+antes de reportar sucesso.
 
 ## Códigos de saída
 
@@ -116,6 +123,23 @@ implementado** (Sprint 1 e Sprint 1.1). Quando `deploy.sh` executa um rollback a
 `release.yml`, conforme o contrato em uso) continua declarando a versão que falhou — uma
 divergência intencionalmente temporária. O script imprime um aviso explícito pedindo PR manual.
 Fechar esse gap é trabalho de sprint futura.
+
+## Rollback legado vs. rollback release (temporário — Sprint 2A.3)
+
+Diferença deliberada entre os dois contratos, enquanto ambos coexistirem:
+
+| | `release.yml` (contrato novo) | `versions.env` (contrato legado, só Vantry) |
+|---|---|---|
+| Tag no rollback | Sempre obrigatória | Sempre obrigatória |
+| Digest no rollback | **Sempre obrigatório** — ausência bloqueia (`exit 10`) | Opcional — ausência gera aviso, não erro |
+| Por quê | Integridade por digest é o ponto central do contrato novo (ADR-007) — nunca enfraquecida | Nunca existiu digest verificável para essas imagens (`RepoDigests` ausente na VPS real, confirmado por auditoria — Sprint 2A) |
+| Quando muda | N/A — é o comportamento definitivo | Só quando Vantry migrar para `release.yml` (ver `docs/release-management.md`) |
+
+Isso não é uma segunda forma permanente de operar — é exatamente a exceção limitada pela
+allowlist de migração (`_LEGACY_ALLOWED_APPS` em `scripts/lib/common.sh`), que já existia desde a
+Sprint 1.2 para o contrato como um todo. Nenhum app fora dessa allowlist consegue usar
+`versions.env` de forma alguma (bloqueado em `load_release_state`, `exit 11`) — logo, também não
+consegue fazer rollback legado.
 
 ## Como disparar um deploy
 

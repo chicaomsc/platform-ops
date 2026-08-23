@@ -73,23 +73,31 @@ healthcheck:
   timeout_seconds: 300
   interval_seconds: 5
   retries: 60
+  # Sprint 2A.3 — corrigido de "http"/"exec" contra portas/endpoints internos
+  # para "container_health": o compose real (docker-compose.prod.yml, fora
+  # deste repositório) já define HEALTHCHECK nativo para os quatro serviços;
+  # container_health só lê o State.Health.Status que o próprio Docker já
+  # calculou, sem fazer nenhuma requisição de rede daqui. Causa raiz do bug
+  # anterior (status=000000 em produção real): backend (8080) e frontend
+  # (3000) só existem na rede `internal` do compose, nunca publicados no
+  # host da VPS — um curl deste script (que roda no host via SSH) para
+  # 127.0.0.1:8080/3000 nunca conecta. O mesmo valia para caddy:2019 (API
+  # admin, também não publicada no host). Ver scripts/healthcheck.sh para o
+  # detalhamento dos tipos de check disponíveis (http/exec continuam
+  # suportados para futuros SaaS sem HEALTHCHECK nativo no compose).
   checks:
     - service: backend
-      type: http
-      url: http://127.0.0.1:8080/actuator/health/readiness
-      expected_status: 200
+      type: container_health
+      container: contractor-platform-backend-1
     - service: frontend
-      type: http
-      url: http://127.0.0.1:3000/api/health
-      expected_status: 200
+      type: container_health
+      container: contractor-platform-frontend-1
     - service: caddy
-      type: http
-      url: http://127.0.0.1:2019/config/
-      expected_status: 200
+      type: container_health
+      container: contractor-platform-caddy-1
     - service: postgres
-      type: exec
+      type: container_health
       container: contractor-platform-postgres-1
-      command: "pg_isready -U platform -d platform_db"
   # Validação externa opcional, executada a partir do runner (não da VPS), via
   # HTTPS pelo domínio público — ver Etapa 4 da Sprint 1 ("usar HTTPS pelo
   # domínio real"). Desabilitada até o path público de health ser confirmado

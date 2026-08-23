@@ -22,29 +22,31 @@ final.
 
 ## Caso 2 — Reverter para uma versão específica mais antiga
 
-Desde a Sprint 1.1, rollback exige **tag e digest em conjunto** para cada componente — nunca só
-a tag (ver [docs/versioning.md](../versioning.md#rollback)). Se a versão-alvo não é a
-imediatamente anterior (ex.: o problema já existe há dois deploys):
+Tag é **sempre** obrigatória para os três componentes. Digest depende do contrato (Sprint 2A.3 —
+ver [deployment-flow.md § Rollback legado vs. rollback release](../deployment-flow.md#rollback-legado-vs-rollback-release-temporário--sprint-2a3)):
 
-- **Vantry/Production (contrato legado, `versions.env`):** o "digest" aqui é o próprio SHA de
-  commit usado como tag — identifique-o no histórico de commits de
+- **Vantry/Production (contrato legado, `versions.env`):** nunca existiu digest verificável para
+  essas imagens — identifique o SHA desejado no histórico de commits de
   `apps/vantry/production/versions.env` (`git log -p apps/vantry/production/versions.env`) e
-  passe o mesmo valor como tag e como referência; a verificação de digest é pulada
-  automaticamente em modo legado (`common.sh` avisa "não verificável", não bloqueia).
-- **Apps já migrados para `release.yml`:** localize o commit de `release.yml` correspondente à
-  release desejada (`git log -p apps/<app>/<env>/release.yml`) e copie tag+digest de cada
-  componente a partir dele.
+  passe **só as três flags de tag**; omitir as flags de digest é aceito, com aviso.
+- **Apps já migrados para `release.yml`:** digest é obrigatório — localize o commit de
+  `release.yml` correspondente à release desejada (`git log -p apps/<app>/<env>/release.yml`) e
+  copie tag+digest de cada componente a partir dele.
 
 ```
+# Contrato legado (Vantry/Production hoje) — só tag, digest opcional:
+scripts/rollback.sh --app vantry --env production \
+  --to-backend-tag <sha>  --to-frontend-tag <sha>  --to-caddy-tag <sha>
+
+# Contrato release.yml — tag e digest obrigatórios em conjunto:
 scripts/rollback.sh --app vantry --env production --to-release 1.2.0 \
   --to-backend-tag 1.2.0  --to-backend-digest sha256:... \
   --to-frontend-tag 1.2.0 --to-frontend-digest sha256:... \
   --to-caddy-tag 1.2.0    --to-caddy-digest sha256:...
 ```
 
-`--to-release` é apenas um rótulo para o log — não faz lookup automático. As seis flags
-`--to-*-tag`/`--to-*-digest` são obrigatórias em conjunto; passar `--to-release` sem elas é um
-erro de uso deliberado (o script nunca adivinha um digest histórico).
+`--to-release` é apenas um rótulo para o log — não faz lookup automático; passá-lo sem as flags
+de tag é um erro de uso deliberado (o script nunca adivinha um digest histórico).
 
 ## Depois de qualquer rollback manual
 

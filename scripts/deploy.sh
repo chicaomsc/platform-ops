@@ -126,12 +126,15 @@ log "Conectividade SSH confirmada."
 
 log "Capturando versões realmente em execução na VPS (baseline para rollback)..."
 RUNNING_STATE="$(remote_capture_running_state "$PROJECT")"
-RUNNING_BACKEND_TAG="$(printf '%s\n' "$RUNNING_STATE" | grep '^BACKEND_TAG=' | cut -d= -f2-)"
-RUNNING_BACKEND_DIGEST="$(printf '%s\n' "$RUNNING_STATE" | grep '^BACKEND_DIGEST=' | cut -d= -f2-)"
-RUNNING_FRONTEND_TAG="$(printf '%s\n' "$RUNNING_STATE" | grep '^FRONTEND_TAG=' | cut -d= -f2-)"
-RUNNING_FRONTEND_DIGEST="$(printf '%s\n' "$RUNNING_STATE" | grep '^FRONTEND_DIGEST=' | cut -d= -f2-)"
-RUNNING_CADDY_TAG="$(printf '%s\n' "$RUNNING_STATE" | grep '^CADDY_TAG=' | cut -d= -f2-)"
-RUNNING_CADDY_DIGEST="$(printf '%s\n' "$RUNNING_STATE" | grep '^CADDY_DIGEST=' | cut -d= -f2-)"
+# "|| true" por defesa em profundidade (mesmo raciocínio do bug corrigido em
+# rollback.sh nesta sprint): evita que uma saída remota inesperada/parcial
+# derrube o script via set -e antes da checagem explícita logo abaixo.
+RUNNING_BACKEND_TAG="$(printf '%s\n' "$RUNNING_STATE" | grep '^BACKEND_TAG=' | cut -d= -f2- || true)"
+RUNNING_BACKEND_DIGEST="$(printf '%s\n' "$RUNNING_STATE" | grep '^BACKEND_DIGEST=' | cut -d= -f2- || true)"
+RUNNING_FRONTEND_TAG="$(printf '%s\n' "$RUNNING_STATE" | grep '^FRONTEND_TAG=' | cut -d= -f2- || true)"
+RUNNING_FRONTEND_DIGEST="$(printf '%s\n' "$RUNNING_STATE" | grep '^FRONTEND_DIGEST=' | cut -d= -f2- || true)"
+RUNNING_CADDY_TAG="$(printf '%s\n' "$RUNNING_STATE" | grep '^CADDY_TAG=' | cut -d= -f2- || true)"
+RUNNING_CADDY_DIGEST="$(printf '%s\n' "$RUNNING_STATE" | grep '^CADDY_DIGEST=' | cut -d= -f2- || true)"
 
 if [[ -z "$RUNNING_BACKEND_TAG" || -z "$RUNNING_FRONTEND_TAG" || -z "$RUNNING_CADDY_TAG" ]]; then
   warn "Não foi possível determinar a versão em execução de todos os serviços (primeiro deploy via este pipeline?). Rollback automático não terá baseline nesta execução."

@@ -145,16 +145,18 @@ acontecer silenciosamente (ver ADR-001 e ADR-003, seções atualizadas na Sprint
 ## Rollback
 
 Semanticamente, um operador pensa "reverter de 1.2.1 para 1.2.0". Tecnicamente,
-`scripts/rollback.sh` sempre reverte por **par tag+digest**, nunca só por tag — nunca "a tag que
-hoje se chama 1.2.0", sempre "o artefato cujo digest era X quando estava rodando". Dois modos:
+`scripts/rollback.sh` reverte por **par tag+digest** sempre que o digest existe (contrato
+`release.yml`) — nunca "a tag que hoje se chama 1.2.0", sempre "o artefato cujo digest era X
+quando estava rodando". Dois modos:
 
 - **Automático**, a partir de `deploy.sh`: usa o snapshot de tag+digest capturado (via `docker
   inspect`, direto do que estava de fato rodando) imediatamente antes do deploy que falhou.
-- **Manual**: sem override, lê o mesmo snapshot; com override, exige as seis flags
-  `--to-*-tag`/`--to-*-digest` em conjunto — o operador busca o digest histórico no commit
-  correspondente de `release.yml` (`git show <commit>:apps/<app>/<env>/release.yml`). Esta
-  sprint não implementa lookup automático de release histórica por número de versão — ver
-  "Pendências" no relatório da Sprint 1.1.
+- **Manual**: sem override, lê o mesmo snapshot; com override, exige a tag (sempre) e o digest
+  (obrigatório em modo `release.yml`; opcional, com aviso, em modo `versions.env` legado — ver
+  [deployment-flow.md § Rollback legado vs. rollback release](deployment-flow.md#rollback-legado-vs-rollback-release-temporário--sprint-2a3),
+  Sprint 2A.3) — o operador busca o digest histórico no commit correspondente de `release.yml`
+  (`git show <commit>:apps/<app>/<env>/release.yml`). Esta sprint não implementa lookup
+  automático de release histórica por número de versão — ver "Extensões futuras" abaixo.
 
 ## Migração: do modelo legado ao novo contrato
 
