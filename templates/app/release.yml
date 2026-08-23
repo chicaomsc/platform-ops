@@ -1,0 +1,37 @@
+# Template — Release Manifest (schema platform-ops/v1)
+#
+# Copie para apps/<app>/<environment>/release.yml ao dar onboarding de um
+# novo produto ou de um novo ambiente — ver docs/release-management.md e
+# ADR-006/ADR-007. Substitua todos os valores entre <> pelos reais. Nenhum
+# app novo deve nascer com versions.env (contrato legado, deprecated — ver
+# docs/release-management.md "Política de depreciação").
+#
+# Todos os campos são obrigatórios. Uma release, uma vez commitada, é
+# imutável — corrigir um erro é publicar uma nova versão, nunca reescrever
+# esta.
+
+apiVersion: platform-ops/v1
+kind: Release
+
+metadata:
+  application: <nome-do-app>
+  environment: <development|staging|production>
+
+release:
+  version: "<MAJOR.MINOR.PATCH>"
+  sourceCommit: "<sha40-completo-do-commit>"
+  createdAt: "<ISO8601, ex: 2026-08-23T14:00:00Z>"
+
+components:
+  backend:
+    image: <registry>/<caminho-da-imagem-backend>
+    tag: "<MAJOR.MINOR.PATCH>"
+    digest: "sha256:<64-caracteres-hex>"
+  frontend:
+    image: <registry>/<caminho-da-imagem-frontend>
+    tag: "<MAJOR.MINOR.PATCH>"
+    digest: "sha256:<64-caracteres-hex>"
+  caddy:
+    image: <registry>/<caminho-da-imagem-caddy>
+    tag: "<MAJOR.MINOR.PATCH>"
+    digest: "sha256:<64-caracteres-hex>"

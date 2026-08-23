@@ -1,0 +1,24 @@
+# Segredos e credenciais — nunca versionados (ver ADR-004)
+*.env.local
+*.env.*.local
+.env
+*.pem
+*.key
+*_rsa
+*_ed25519
+id_rsa*
+id_ed25519*
+known_hosts.local
+*.secret
+secrets/
+
+# Sistema operacional / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Logs e artefatos locais de execução
+*.log
+tmp/
+.tmp/

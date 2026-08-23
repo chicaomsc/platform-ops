@@ -1,0 +1,49 @@
+# Inventário de servidor — metadados não sensíveis (ADR-001, ADR-004)
+# Nenhuma credencial, chave privada ou token é declarado neste arquivo.
+# IP público e hostname não são tratados como segredo nesta arquitetura —
+# são informação operacional necessária para o pipeline de deploy funcionar.
+
+name: hetzner-prod-01
+provider: hetzner-cloud
+hostname: contractor-platform-prod
+public_ip: 46.225.52.238
+
+ssh:
+  user: deploy
+  port: 22
+  auth: public-key
+  root_login: disabled
+  password_authentication: disabled
+  # A chave privada correspondente NUNCA é versionada aqui — vive como secret
+  # dedicado no GitHub Environment "production" (ver ADR-004 e
+  # docs/secrets.md). O usuário "deploy" tem sudo e pertence ao grupo docker.
+
+runtime:
+  container_engine: docker
+  docker_version: "29.7.2"
+  compose_version: "5.4.0"
+  compose_command: "docker compose" # não usar "docker-compose" standalone
+  systemd_managed_services:
+    - docker
+    - containerd
+
+firewall:
+  tool: ufw
+  default_incoming: deny
+  default_outgoing: allow
+  allowed:
+    - OpenSSH
+    - 80/tcp
+    - 443/tcp
+
+network_exposure:
+  public_ports: [22, 80, 443]
+  note: >-
+    backend, frontend e postgres não são expostos diretamente à internet;
+    todo o tráfego HTTP(S) externo passa pelo Caddy, que termina TLS via
+    ACME DNS-01 com Cloudflare.
+
+hosted_environments:
+  - app: vantry
+    environment: production
+    path: apps/vantry/production

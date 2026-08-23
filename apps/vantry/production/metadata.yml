@@ -1,0 +1,126 @@
+# Estado desejado — metadados não sensíveis (ADR-001, ADR-004)
+# Nenhum valor de segredo é declarado neste arquivo, direta ou indiretamente.
+# Consumido por scripts/deploy.sh, scripts/healthcheck.sh e scripts/rollback.sh via `yq`.
+
+app: vantry
+environment: production
+
+# NOTA DE COMPATIBILIDADE (ver ADR-001 e Sprint 1):
+# "Vantry" é a identidade de produto usada neste repositório (apps/vantry/).
+# O repositório de aplicação, as imagens GHCR, os nomes de container, o compose
+# project e os paths na VPS ainda usam o nome histórico "contractor-platform"
+# (branding anterior ao rebranding para Vantry). Esta Sprint NÃO renomeia nenhum
+# desses recursos operacionais — isso é tratado como migração própria, para não
+# misturar rebranding com a introdução do GitOps. Todo valor abaixo que referencia
+# "contractor-platform" é intencional e reflete a infraestrutura real hoje.
+# INFORMATIONAL — não lido por nenhum script; documenta para humanos onde o
+# código-fonte deste app vive. Ver Sprint 2A auditoria.
+application_repository: chicaomsc/contractor-plataform
+
+server: hetzner-prod-01 # referencia servers/hetzner-prod-01.yml
+
+deploy_target:
+  working_directory: /opt/contractor-platform/infra/compose
+  compose_file: docker-compose.prod.yml
+  compose_project_name: contractor-platform
+  # INFORMATIONAL — não lido por nenhum script; o padrão real usado por
+  # scripts/lib/common.sh (remote_capture_running_state) é hardcoded como
+  # "<compose_project_name>-<service>-1". Este campo documenta esse padrão
+  # para humanos; alterá-lo aqui NÃO muda o comportamento do script. Ver
+  # Sprint 2A auditoria ("metadata falsa").
+  container_name_pattern: "contractor-platform-<service>-1"
+  # Arquivo de segredos já existente na VPS. platform-ops NUNCA lê, copia,
+  # imprime ou versiona o conteúdo deste arquivo — apenas referencia o path
+  # para que docker compose o utilize como --env-file (ver ADR-004).
+  secrets_env_file: /opt/contractor-platform/infra/env/production.env
+  # Path não secreto, gerido por deploy.sh/rollback.sh, para registrar a última
+  # versão confirmada em execução antes de cada deploy (snapshot para rollback
+  # automático — ver ADR-003 e Etapa 5 da Sprint 1). Nunca contém segredos.
+  rollback_state_file: /opt/contractor-platform/infra/state/last-known-good.env
+  # Serviços cujo ciclo de vida (pull/up) é controlado por este pipeline.
+  managed_services:
+    - backend
+    - frontend
+    - caddy
+  # Serviços explicitamente fora do controle deste pipeline. postgres é stateful,
+  # não é versionado por SHA de aplicação e nunca deve ser reiniciado por deploy.sh
+  # ou rollback.sh (ver ADR-001 "Estratégia para múltiplos servidores" e Etapa 8
+  # da Sprint 1 — não alterar infraestrutura funcional desnecessariamente).
+  excluded_services:
+    - postgres
+
+registry:
+  provider: ghcr.io
+  images:
+    backend: ghcr.io/chicaomsc/contractor-platform-backend
+    frontend: ghcr.io/chicaomsc/contractor-platform-frontend
+    caddy: ghcr.io/chicaomsc/contractor-platform-caddy
+  # Nenhuma tag móvel é permitida (ver ADR-001 "Estratégia de versionamento").
+  # Consumido ativamente por scripts/lib/common.sh (_deny_mutable_tag) desde
+  # a Sprint 2A.1 — alterar esta lista muda o comportamento real do deploy.
+  disallow_mutable_tags: [latest, main, stable]
+
+healthcheck:
+  # timeout_seconds é um TETO por check (Sprint 2A.1 — cada check tem seu
+  # próprio orçamento, não compartilhado), não uma espera fixa. 300s cobre
+  # com folga o pior caso documentado de cold start do backend real (até
+  # ~240s: 90s start_period + 5×30s retries do healthcheck Docker nativo,
+  # confirmado por auditoria em docker-compose.prod.yml). retries=60 com
+  # interval_seconds=5 (60×5=300s) garante que o loop de retry realmente
+  # alcança esse teto quando necessário, em vez de desistir antes por
+  # esgotar tentativas (o simples aumento de timeout_seconds sem ajustar
+  # retries não teria efeito nenhum — achado da auditoria).
+  timeout_seconds: 300
+  interval_seconds: 5
+  retries: 60
+  checks:
+    - service: backend
+      type: http
+      url: http://127.0.0.1:8080/actuator/health/readiness
+      expected_status: 200
+    - service: frontend
+      type: http
+      url: http://127.0.0.1:3000/api/health
+      expected_status: 200
+    - service: caddy
+      type: http
+      url: http://127.0.0.1:2019/config/
+      expected_status: 200
+    - service: postgres
+      type: exec
+      container: contractor-platform-postgres-1
+      command: "pg_isready -U platform -d platform_db"
+  # Validação externa opcional, executada a partir do runner (não da VPS), via
+  # HTTPS pelo domínio público — ver Etapa 4 da Sprint 1 ("usar HTTPS pelo
+  # domínio real"). Desabilitada até o path público de health ser confirmado
+  # explicitamente (não deve ser adivinhado — ver relatório da Sprint 1).
+  external_validation:
+    enabled: false
+    url: null
+    expected_status: 200
+
+rollback:
+  # INFORMATIONAL — "last-known-good" é a única estratégia implementada hoje
+  # (snapshot capturado ao vivo da VPS antes de cada deploy — ver ADR-003);
+  # não existe seletor de estratégia no código. Documenta o comportamento
+  # fixo atual, não um switch configurável.
+  strategy: last-known-good
+  auto_trigger_on_healthcheck_failure: true
+  # INFORMATIONAL — deploy.sh sempre executa exatamente 1 tentativa de
+  # rollback automático; este valor não é lido nem usado como contador.
+  # Alterá-lo NÃO habilita múltiplas tentativas. Ver Sprint 2A auditoria
+  # ("metadata falsa") — mantido como registro da decisão de design (uma
+  # única tentativa automática; qualquer necessidade de tentativa adicional
+  # é, deliberadamente, uma decisão humana via rollback manual).
+  max_automatic_attempts: 1
+
+domain:
+  primary: chicaodw.com.br
+  wildcard: "*.chicaodw.com.br"
+  tls: caddy-acme-dns01-cloudflare
+
+network:
+  public_ports: [22, 80, 443]
+  note: >-
+    backend, frontend e postgres não são expostos diretamente à internet;
+    todo o tráfego HTTP(S) externo passa pelo Caddy.
