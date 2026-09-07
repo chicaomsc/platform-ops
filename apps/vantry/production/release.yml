@@ -1,0 +1,25 @@
+apiVersion: platform-ops/v1
+kind: Release
+
+metadata:
+  application: vantry
+  environment: production
+
+release:
+  version: "1.1.0"
+  sourceCommit: "d10141384e5fe1a2108256905c84630f44dfa61d"
+  createdAt: "2026-09-07T12:23:56Z"
+
+components:
+  backend:
+    image: ghcr.io/chicaomsc/contractor-platform-backend
+    tag: "1.1.0"
+    digest: "sha256:118b5fc606039b5dd469eca0517c92887997f9c33c0d3639294b4850b1759d7c"
+  frontend:
+    image: ghcr.io/chicaomsc/contractor-platform-frontend
+    tag: "1.1.0"
+    digest: "sha256:03cc794170852398147b9a8edf0a5b81d2dd09433436883610b21d6911610948"
+  caddy:
+    image: ghcr.io/chicaomsc/contractor-platform-caddy
+    tag: "1.1.0"
+    digest: "sha256:3a9dfa4d4ccbf02a5a0a9f6a0100f547b760e94f45ebbc9278e500d0a1cfe6be"
