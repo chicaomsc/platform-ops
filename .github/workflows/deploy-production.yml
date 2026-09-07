@@ -1,32 +1,44 @@
 name: Deploy Production (Vantry)
 
-# Sprint 1 — fundação executável do GitOps (ADR-001, ADR-002).
+# Deploy GitOps de Vantry/Production.
 #
-# Escopo desta sprint: workflow_dispatch MANUAL apenas. Não há gatilho
-# automático por push/merge — isso é um não-objetivo explícito desta sprint
-# (ver ADR-005: a promoção para Production exige aprovação formal; a
-# automação completa de promoção é trabalho de sprint futura).
+# O estado desejado de produção é declarado exclusivamente em:
+# apps/vantry/production/release.yml
 #
-# Este workflow executa exclusivamente a versão declarada em
-# apps/vantry/production/ — nunca uma versão arbitrária passada por input,
-# para preservar Git como única fonte da verdade (ADR-001).
+# Fluxo normal:
+#   release da aplicação
+#   → publicação dos artefatos imutáveis
+#   → PR automática no platform-ops
+#   → revisão humana e merge
+#   → alteração de release.yml na main
+#   → deploy automático
 #
-# Sprint 1.1: scripts/deploy.sh detecta automaticamente se o app/ambiente usa
-# o contrato legado (versions.env) ou o novo (release.yml, com verificação de
-# digest) — nenhuma mudança neste workflow foi necessária para suportar isso.
-# Ver docs/versioning.md. Vantry/Production permanece no contrato legado.
+# workflow_dispatch permanece disponível para reexecução
+# operacional/controlada.
 #
-# Sprint 2A.1 — achado de auditoria corrigido: SSH_TIMEOUT_SECONDS=30 (uma
-# única variável) encapsulava tanto conexão quanto a sessão inteira do
-# healthcheck, matando-a antes do orçamento configurado em metadata.yml se
-# esgotar. Substituído por três variáveis separadas — ver
-# scripts/lib/common.sh (ssh_exec/ssh_exec_stdin) para o detalhamento.
+# O workflow nunca recebe uma versão arbitrária por input.
+# A versão, source commit, imagens e digests são obtidos do
+# estado desejado versionado no repositório.
+#
+# O deploy utiliza scripts/deploy.sh, que suporta release.yml
+# com verificação de digest e mantém compatibilidade operacional
+# com o contrato legado quando necessário.
+#
+# Os timeouts de conexão SSH, execução remota e healthcheck são
+# independentes para evitar que o tempo de conexão limite o
+# orçamento total de inicialização/healthcheck da aplicação.
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - "apps/vantry/production/release.yml"
+
   workflow_dispatch:
     inputs:
       disable_auto_rollback:
-        description: "Desabilitar rollback automático em caso de falha de healthcheck (uso apenas para testes controlados de rollback manual — ver Sprint 1, Etapa 9)"
+        description: "Desabilitar rollback automático em caso de falha de healthcheck"
         type: boolean
         required: false
         default: false
@@ -35,10 +47,11 @@ permissions:
   contents: read
 
 concurrency:
-  # Garante que nenhum outro deploy ou rollback de vantry/production rode em
-  # paralelo (Sprint 1, Etapa 6). Não cancela uma execução em andamento —
-  # uma nova execução aguarda a anterior terminar, nunca interrompe um
-  # deploy/rollback a meio caminho.
+  # Nunca executa dois deploys/rollbacks de vantry/production
+  # simultaneamente.
+  #
+  # Uma nova execução aguarda a anterior terminar em vez de
+  # interromper um deploy em andamento.
   group: deploy-vantry-production
   cancel-in-progress: false
 
@@ -47,11 +60,14 @@ jobs:
     name: Deploy vantry/production
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    # Vincula esta execução ao GitHub Environment "production": aplica as
-    # regras de proteção (aprovadores obrigatórios, branch permitida, etc.)
-    # configuradas em Settings → Environments no GitHub, e disponibiliza os
-    # secrets do Environment (nunca secrets de repositório/organização
-    # genéricos) para os passos abaixo.
+
+    # Mantém secrets e regras específicas de Production
+    # centralizados no GitHub Environment.
+    #
+    # Se o Environment "production" possuir Required Reviewers,
+    # o job aguardará aprovação adicional. Para o modelo de dois
+    # gates humanos, a PR de promoção no platform-ops deve ser
+    # considerada a autorização de produção.
     environment: production
 
     steps:
@@ -59,35 +75,44 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Instalar yq (versão fixa)
-        # Versão fixa deliberadamente — mesma política de "sem tags móveis"
-        # aplicada às imagens de aplicação (ADR-001) vale para ferramentas do
-        # próprio pipeline.
+        # Versão fixa deliberadamente.
+        #
+        # A mesma política de evitar referências móveis utilizada
+        # nos artefatos da aplicação é aplicada às ferramentas
+        # relevantes do pipeline.
         run: |
           set -euo pipefail
+
           YQ_VERSION="v4.44.3"
+
           curl -fsSL -o /usr/local/bin/yq \
             "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64"
+
           chmod +x /usr/local/bin/yq
+
           yq --version
 
       - name: Configurar acesso SSH
-        # Nunca imprime a chave privada. Não usa `set -x`. A chave é
-        # carregada em um ssh-agent efêmero (memória do runner, destruído ao
-        # fim do job) e nunca escrita em um arquivo de longa duração no
-        # workspace do checkout.
+        # A chave privada é carregada em um ssh-agent efêmero.
+        #
+        # Não usa set -x e não imprime a chave.
+        # O agente é encerrado ao final do job.
         env:
           PROD_SSH_PRIVATE_KEY: ${{ secrets.PROD_SSH_PRIVATE_KEY }}
           PROD_SSH_KNOWN_HOSTS: ${{ secrets.PROD_SSH_KNOWN_HOSTS }}
         run: |
           set -euo pipefail
+
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
 
           eval "$(ssh-agent -s)" >/dev/null
+
           echo "SSH_AUTH_SOCK=${SSH_AUTH_SOCK}" >> "$GITHUB_ENV"
           echo "SSH_AGENT_PID=${SSH_AGENT_PID}" >> "$GITHUB_ENV"
 
           printf '%s\n' "$PROD_SSH_PRIVATE_KEY" | ssh-add - >/dev/null
+
           printf '%s\n' "$PROD_SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
 
@@ -96,12 +121,22 @@ jobs:
           SSH_CONNECT_TIMEOUT_SECONDS: "10"
           DEPLOY_COMMAND_TIMEOUT_SECONDS: "600"
           HEALTHCHECK_TIMEOUT_SECONDS: "300"
+
+          # Deploy automático sempre mantém rollback habilitado.
+          #
+          # --no-auto-rollback somente pode ser solicitado em uma
+          # execução manual explícita via workflow_dispatch.
+          DISABLE_AUTO_ROLLBACK: ${{ github.event_name == 'workflow_dispatch' && inputs.disable_auto_rollback || false }}
+
         run: |
           set -euo pipefail
+
           ARGS="--app vantry --env production"
-          if [[ "${{ inputs.disable_auto_rollback }}" == "true" ]]; then
+
+          if [[ "${DISABLE_AUTO_ROLLBACK}" == "true" ]]; then
             ARGS="${ARGS} --no-auto-rollback"
           fi
+
           # shellcheck disable=SC2086
           ./scripts/deploy.sh ${ARGS}
 
@@ -109,6 +144,7 @@ jobs:
         if: always()
         run: |
           set -euo pipefail
+
           if [[ -n "${SSH_AGENT_PID:-}" ]]; then
             kill "${SSH_AGENT_PID}" 2>/dev/null || true
           fi
@@ -117,17 +153,26 @@ jobs:
         if: always()
         run: |
           set -euo pipefail
-          # Sprint 2A.1 — não hardcoda mais "versions.env": detecta qual
-          # contrato foi de fato usado, para o resumo não ficar errado
-          # quando/se vantry/production migrar para release.yml.
+
           if [[ -f apps/vantry/production/release.yml ]]; then
             CONTRACT_FILE="apps/vantry/production/release.yml"
           else
             CONTRACT_FILE="apps/vantry/production/versions.env"
           fi
+
           echo "### Deploy vantry/production" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Resultado do job: \`${{ job.status }}\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Estado desejado usado: \`${CONTRACT_FILE}\` (commit \`${{ github.sha }}\`)" >> "$GITHUB_STEP_SUMMARY"
+
+          echo "- Resultado do job: \`${{ job.status }}\`" \
+            >> "$GITHUB_STEP_SUMMARY"
+
+          echo "- Trigger: \`${{ github.event_name }}\`" \
+            >> "$GITHUB_STEP_SUMMARY"
+
+          echo "- Estado desejado usado: \`${CONTRACT_FILE}\` (commit \`${{ github.sha }}\`)" \
+            >> "$GITHUB_STEP_SUMMARY"
+
           echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "Ver o passo **Deploy — vantry/production** para os logs completos, incluindo se houve rollback automático (ver ADR-003)." >> "$GITHUB_STEP_SUMMARY"
+
+          echo "Ver o passo **Deploy — vantry/production** para os logs completos, incluindo eventual rollback automático." \
+            >> "$GITHUB_STEP_SUMMARY"
