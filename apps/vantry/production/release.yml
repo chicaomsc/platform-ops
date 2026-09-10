@@ -6,20 +6,20 @@ metadata:
   environment: production
 
 release:
-  version: "1.4.0"
-  sourceCommit: "ed7c1d3b15320f51b7e53292b446982aa05eb2e2"
-  createdAt: "2026-09-09T14:24:13Z"
+  version: "1.5.0"
+  sourceCommit: "264d86f32b151e9992cff1069d6067c91f863845"
+  createdAt: "2026-09-10T00:22:00Z"
 
 components:
   backend:
     image: ghcr.io/chicaomsc/contractor-platform-backend
-    tag: "1.4.0"
-    digest: "sha256:cd749c7fd523d7ddc927af55d479a1728d894fef08c3c2e7fd3f75d9c4369bea"
+    tag: "1.5.0"
+    digest: "sha256:5459619088472dcee31d257c24df35cbcd5a98829432fd81c08d518e19f2fe24"
   frontend:
     image: ghcr.io/chicaomsc/contractor-platform-frontend
-    tag: "1.4.0"
-    digest: "sha256:ac0979527284219ca4a3daa765f2802d7132a4e847e9b63b781d4e49b4fd9945"
+    tag: "1.5.0"
+    digest: "sha256:5a5659107c2a185850d95bbec2ed219e2fa5f6f6fae88ac07bd59134850dfd92"
   caddy:
     image: ghcr.io/chicaomsc/contractor-platform-caddy
-    tag: "1.4.0"
-    digest: "sha256:e403b27429258464c374641f180b533ee82786b8ac7ef2fef16b31c659fc2e80"
+    tag: "1.5.0"
+    digest: "sha256:a4c95d4213f70decef8c40de9e03aefc4381880e5f2201cfbd21d52325207a11"
